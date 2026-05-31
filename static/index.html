@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prose</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+
+  <!-- Auth modal -->
+  <div id="auth-modal" class="auth-overlay" hidden>
+    <div class="auth-modal">
+      <div class="auth-logo">Prose</div>
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-auth-tab="login">로그인</button>
+        <button class="auth-tab" data-auth-tab="register">회원가입</button>
+      </div>
+      <form id="auth-form">
+        <input type="email" id="auth-email" placeholder="이메일" autocomplete="email" required />
+        <input type="password" id="auth-password" placeholder="비밀번호" autocomplete="current-password" required />
+        <div id="auth-error" class="auth-error" hidden></div>
+        <button type="submit" id="auth-submit">로그인</button>
+        <button type="button" id="guest-btn" class="guest-btn">로그인 없이 계속하기</button>
+      </form>
+    </div>
+  </div>
+
+  <button id="admin-btn" hidden>관리자</button>
+  <button id="login-floating-btn" hidden>로그인 / 회원가입</button>
+
+  <!-- Admin modal -->
+  <div id="admin-modal" class="auth-overlay" hidden>
+    <div class="auth-modal admin-modal-box">
+      <div class="admin-modal-header">
+        <h2 class="admin-modal-title">관리자 패널</h2>
+        <button id="admin-close-btn" class="admin-close-btn">✕</button>
+      </div>
+      <div id="admin-user-list" class="admin-user-list">
+        <p class="no-sessions">불러오는 중...</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="layout">
+
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">라이브러리</span>
+        <div class="sidebar-actions">
+          <button id="new-btn">+ 새 분석</button>
+        </div>
+      </div>
+      <div id="session-list" class="session-list"></div>
+    </aside>
+
+    <main class="main">
+      <div class="container">
+        <header>
+          <div class="brand">
+            <svg class="brand-mark" xmlns="http://www.w3.org/2000/svg" width="46" height="46" viewBox="0 0 46 46" fill="none">
+              <defs>
+                <linearGradient id="bgrad" x1="0" y1="0" x2="46" y2="46" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#a78bfa"/>
+                  <stop offset="100%" stop-color="#6d28d9"/>
+                </linearGradient>
+              </defs>
+              <rect width="46" height="46" rx="13" fill="url(#bgrad)"/>
+              <line x1="12" y1="15" x2="34" y2="15" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+              <line x1="12" y1="23" x2="34" y2="23" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+              <line x1="12" y1="31" x2="25" y2="31" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+            </svg>
+            <h1>Prose</h1>
+          </div>
+          <p>코드를 사람의 언어로.</p>
+        </header>
+
+        <section class="input-section">
+          <textarea id="code-input" placeholder="설명받고 싶은 코드를 여기에 붙여넣으세요..."></textarea>
+          <button id="submit-btn">설명해줘 ✨</button>
+        </section>
+
+        <div id="output" hidden>
+          <div class="overall-card">
+            <div id="overall-explanation"></div>
+          </div>
+
+          <div class="split-card">
+            <div class="split-view">
+              <div class="code-panel">
+                <div id="code-sections"></div>
+              </div>
+              <div class="explanation-panel">
+                <div id="chat-messages" class="chat-messages">
+                  <p class="hint">👈 코드에서 원하는 부분을 클릭하세요.</p>
+                </div>
+                <div class="qa-input-row" id="qa-input-area" hidden>
+                  <input type="text" id="qa-input" placeholder="궁금한 점을 물어보세요..." />
+                  <button id="qa-btn">전송</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

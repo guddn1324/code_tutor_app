@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+anthropic
+python-dotenv
+passlib[bcrypt]
+bcrypt<5
+python-jose[cryptography]
