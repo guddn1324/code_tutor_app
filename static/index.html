@@ -92,9 +92,18 @@
           <div class="split-card">
             <div class="split-view">
               <div class="code-panel">
+                <div class="code-panel-toolbar">
+                  <button id="select-mode-btn">선택하기</button>
+                  <button id="select-all-btn" hidden>전체 선택</button>
+                </div>
                 <div id="code-sections"></div>
               </div>
               <div class="explanation-panel">
+                <div class="explain-mode-bar">
+                  <button class="explain-mode-btn" data-mode="auto">바로 설명</button>
+                  <button class="explain-mode-btn" data-mode="manual">질문 먼저</button>
+                  <button id="explain-now-btn" hidden>설명 보기</button>
+                </div>
                 <div id="chat-messages" class="chat-messages">
                   <p class="hint">👈 코드에서 원하는 부분을 클릭하세요.</p>
                 </div>

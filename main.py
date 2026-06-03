@@ -80,6 +80,10 @@ def init_db():
             conn.execute(f"ALTER TABLE users ADD COLUMN {col} INTEGER DEFAULT 0")
         except Exception:
             pass
+    try:
+        conn.execute("ALTER TABLE sessions ADD COLUMN merge_groups TEXT")
+    except Exception:
+        pass
     if ADMIN_EMAIL:
         conn.execute(
             "UPDATE users SET is_admin=1, is_approved=1 WHERE email=?",
@@ -285,6 +289,8 @@ def get_session(session_id: str, user_id: int = Depends(current_user)):
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없어요")
     session = dict(row)
     session["sections"] = json.loads(session["sections"] or "[]")
+    mg = session.get("merge_groups")
+    session["merge_groups"] = json.loads(mg) if mg else None
 
     expl_rows = conn.execute(
         "SELECT section_index, explanation FROM section_explanations WHERE session_id = ?",
@@ -313,15 +319,49 @@ def delete_session_api(session_id: str, user_id: int = Depends(current_user)):
     return {"ok": True}
 
 
-@app.post("/api/sessions/{session_id}/sections/{section_index}")
+@app.post("/api/sessions/{session_id}/sections/{section_key}")
 def save_section_explanation(
-    session_id: str, section_index: int, req: SaveSectionRequest,
+    session_id: str, section_key: str, req: SaveSectionRequest,
     user_id: int = Depends(current_user)
 ):
     conn = get_db()
     conn.execute(
         "INSERT OR REPLACE INTO section_explanations (session_id, section_index, explanation) VALUES (?,?,?)",
-        (session_id, section_index, req.explanation),
+        (session_id, section_key, req.explanation),
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.delete("/api/sessions/{session_id}/sections/{section_key}")
+def delete_section_explanation(
+    session_id: str, section_key: str,
+    user_id: int = Depends(current_user)
+):
+    conn = get_db()
+    conn.execute(
+        "DELETE FROM section_explanations WHERE session_id=? AND section_index=?",
+        (session_id, section_key),
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+class MergeGroupsRequest(BaseModel):
+    merge_groups: list
+
+
+@app.post("/api/sessions/{session_id}/merge-groups")
+def save_merge_groups(
+    session_id: str, req: MergeGroupsRequest,
+    user_id: int = Depends(current_user)
+):
+    conn = get_db()
+    conn.execute(
+        "UPDATE sessions SET merge_groups=? WHERE id=? AND user_id=?",
+        (json.dumps(req.merge_groups), session_id, user_id),
     )
     conn.commit()
     conn.close()
@@ -382,9 +422,10 @@ def sections(req: CodeRequest, user_id: int = Depends(approved_user)):
     lines = req.code.splitlines()
     result, current = [], []
     for line in lines:
-        if line.strip() == "" and current:
-            result.append("\n".join(current))
-            current = []
+        if line.strip() == "":
+            if current:
+                result.append("\n".join(current))
+                current = []
         else:
             current.append(line)
     if current:

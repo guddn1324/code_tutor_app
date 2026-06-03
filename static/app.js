@@ -8,6 +8,11 @@ let sectionAbortController = null;
 let currentSessionId = null;
 let qaHistory = [];
 let sectionCache = {};
+let mergeGroups = [];
+let selectedGroups = new Set();
+let selectionMode = false;
+let explainMode = localStorage.getItem("explain-mode") || "auto";
+let pendingExplain = null;
 
 // ── Auth ──────────────────────────────────────────────────────
 
@@ -229,7 +234,7 @@ async function restoreSession(id) {
     output.hidden = false;
 
     document.getElementById("overall-explanation").innerHTML = marked.parse(session.overall || "");
-    renderSections(session.sections || []);
+    renderSections(session.sections || [], session.merge_groups || null);
     document.getElementById("chat-messages").innerHTML =
       '<p class="hint">👈 코드에서 원하는 부분을 클릭하세요.</p>';
     qaHistory = [];
@@ -275,6 +280,8 @@ function renderSidebarFromData(sessions) {
     .join("");
 }
 
+document.getElementById("select-mode-btn").addEventListener("click", toggleSelectionMode);
+
 document.getElementById("new-btn").addEventListener("click", () => {
   currentSessionId = null;
   currentCode = "";
@@ -301,7 +308,7 @@ submitBtn.addEventListener("click", async () => {
   output.hidden = false;
   output.scrollIntoView({ behavior: "smooth", block: "start" });
 
-  document.getElementById("code-sections").innerHTML = '<div class="loading">분석 중...</div>';
+  document.getElementById("code-sections").innerHTML = '<div class="loading">코드 분석 중...</div>';
   document.getElementById("overall-explanation").innerHTML = "";
   document.getElementById("chat-messages").innerHTML =
     '<p class="hint">👈 코드에서 원하는 부분을 클릭하세요.</p>';
@@ -352,57 +359,291 @@ async function fetchSections(code) {
   }
 }
 
-function renderSections(secs) {
+function renderSections(secs, savedMergeGroups = null) {
   sections = secs;
+  mergeGroups = savedMergeGroups || secs.map((_, i) => [i]);
+  selectedGroups = new Set();
+  selectionMode = false;
+  document.querySelector('.code-panel')?.classList.remove('selection-mode');
+  updateSelectModeBtn();
+  updateSelectAllButton();
+
   const container = document.getElementById("code-sections");
   container.innerHTML = "";
 
-  secs.forEach((code, i) => {
+  mergeGroups.forEach((group, gIdx) => {
+    const code = group.map(i => sections[i]).join("\n\n");
+    const isMerged = group.length > 1;
+    const groupKey = group.join("-");
+
+    const row = document.createElement("div");
+    row.className = "section-row" + (isMerged ? " merged" : "");
+
+    const checkboxWrap = document.createElement("label");
+    checkboxWrap.className = "merge-checkbox-wrap";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "merge-checkbox";
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) selectedGroups.add(gIdx);
+      else selectedGroups.delete(gIdx);
+      row.classList.toggle("selected-for-merge", checkbox.checked);
+      updateSelectModeBtn();
+      updateSelectAllButton();
+    });
+    checkboxWrap.appendChild(checkbox);
+    row.appendChild(checkboxWrap);
+
     const div = document.createElement("div");
-    div.className = "code-section";
-    div.textContent = code;
-    div.addEventListener("click", () => selectSection(i));
-    container.appendChild(div);
+    div.className = "code-section" + (isMerged ? " merged" : "");
+
+    if (isMerged) {
+      const badge = document.createElement("div");
+      badge.className = "merge-badge";
+      badge.textContent = "병합됨 ";
+      const unmergeBtn = document.createElement("button");
+      unmergeBtn.className = "unmerge-btn";
+      unmergeBtn.textContent = "해제";
+      unmergeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        unmerge(gIdx);
+      });
+      badge.appendChild(unmergeBtn);
+      div.appendChild(badge);
+      const codeBody = document.createElement("div");
+      codeBody.className = "section-body";
+      codeBody.textContent = code;
+      div.appendChild(codeBody);
+    } else {
+      div.textContent = code;
+    }
+
+    div.addEventListener("click", () => { if (!selectionMode) selectGroup(gIdx, groupKey, code); });
+    row.appendChild(div);
+    container.appendChild(row);
   });
 }
 
-function selectSection(index) {
+function updateSelectModeBtn() {
+  const btn = document.getElementById("select-mode-btn");
+  if (!selectionMode) {
+    btn.textContent = "선택하기";
+    btn.className = "";
+  } else if (canMerge()) {
+    btn.textContent = "합치기";
+    btn.className = "merge-ready";
+  } else {
+    btn.textContent = "취소";
+    btn.className = "cancel-mode";
+  }
+}
+
+function updateSelectAllButton() {
+  const btn = document.getElementById("select-all-btn");
+  btn.hidden = !selectionMode;
+  if (!selectionMode) return;
+  const allSelected = mergeGroups.length > 0 && selectedGroups.size === mergeGroups.length;
+  btn.textContent = allSelected ? "전체 해제" : "전체 선택";
+  btn.classList.toggle("deselect-mode", allSelected);
+}
+
+function toggleSelectionMode() {
+  if (!selectionMode) {
+    selectionMode = true;
+    document.querySelector(".code-panel").classList.add("selection-mode");
+    updateSelectModeBtn();
+    updateSelectAllButton();
+  } else if (canMerge()) {
+    mergeSelected();
+  } else {
+    exitSelectionMode();
+  }
+}
+
+function exitSelectionMode() {
+  selectionMode = false;
+  selectedGroups = new Set();
+  document.querySelector(".code-panel").classList.remove("selection-mode");
+  document.querySelectorAll(".merge-checkbox").forEach(cb => { cb.checked = false; });
+  document.querySelectorAll(".section-row").forEach(row => row.classList.remove("selected-for-merge"));
+  updateSelectModeBtn();
+  updateSelectAllButton();
+}
+
+document.getElementById("select-all-btn").addEventListener("click", () => {
+  const allSelected = mergeGroups.length > 0 && selectedGroups.size === mergeGroups.length;
+  selectedGroups = new Set();
+  document.querySelectorAll(".section-row").forEach((row, i) => {
+    const cb = row.querySelector(".merge-checkbox");
+    if (!allSelected) {
+      selectedGroups.add(i);
+      cb.checked = true;
+      row.classList.add("selected-for-merge");
+    } else {
+      cb.checked = false;
+      row.classList.remove("selected-for-merge");
+    }
+  });
+  updateSelectModeBtn();
+  updateSelectAllButton();
+});
+
+function canMerge() {
+  if (selectedGroups.size < 2) return false;
+  const sorted = [...selectedGroups].sort((a, b) => a - b);
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] !== sorted[i - 1] + 1) return false;
+  }
+  return true;
+}
+
+function mergeSelected() {
+  const sorted = [...selectedGroups].sort((a, b) => a - b);
+  const newGroup = sorted.flatMap(i => mergeGroups[i]);
+  const newGroups = [];
+  let i = 0;
+  while (i < mergeGroups.length) {
+    if (i === sorted[0]) {
+      newGroups.push(newGroup);
+      i = sorted[sorted.length - 1] + 1;
+    } else {
+      newGroups.push(mergeGroups[i]);
+      i++;
+    }
+  }
+
+  renderSections(sections, newGroups);
+
+  const newGroupIdx = newGroups.findIndex(g => g === newGroup);
+  const code = newGroup.map(i => sections[i]).join("\n\n");
+  const groupKey = newGroup.join("-");
+  selectGroup(newGroupIdx, groupKey, code);
+
+  if (currentSessionId) saveMergeGroups();
+}
+
+function unmerge(gIdx) {
+  const group = mergeGroups[gIdx];
+  const groupKey = group.join("-");
+  delete sectionCache[groupKey];
+
+  const newGroups = [
+    ...mergeGroups.slice(0, gIdx),
+    ...group.map(i => [i]),
+    ...mergeGroups.slice(gIdx + 1),
+  ];
+  renderSections(sections, newGroups);
+
+  if (currentSessionId) {
+    authFetch(`/api/sessions/${currentSessionId}/sections/${groupKey}`, { method: "DELETE" });
+    saveMergeGroups();
+  }
+}
+
+function selectGroup(gIdx, groupKey, code) {
   if (sectionAbortController) sectionAbortController.abort();
 
-  document.querySelectorAll(".code-section").forEach((el, i) => {
-    el.classList.toggle("active", i === index);
+  document.querySelectorAll(".section-row").forEach((row, i) => {
+    row.classList.toggle("active", i === gIdx);
   });
 
   qaHistory = [];
   const chatEl = document.getElementById("chat-messages");
   chatEl.innerHTML = "";
+  pendingExplain = null;
+  document.getElementById("explain-now-btn").hidden = true;
   document.getElementById("qa-input-area").hidden = false;
+
+  if (explainMode === "manual") {
+    pendingExplain = { groupKey, code };
+    const hintEl = document.createElement("p");
+    hintEl.className = "hint";
+    hintEl.textContent = "바로 질문하거나, 버튼을 눌러 설명을 먼저 볼 수 있어요.";
+    chatEl.appendChild(hintEl);
+    const explainBtn = document.createElement("button");
+    explainBtn.className = "inline-explain-btn";
+    explainBtn.textContent = "설명 보기 ✨";
+    explainBtn.addEventListener("click", triggerExplain);
+    chatEl.appendChild(explainBtn);
+    return;
+  }
 
   const msgEl = document.createElement("div");
   msgEl.className = "explanation-message";
   chatEl.appendChild(msgEl);
+  loadExplanation(msgEl, groupKey, code);
+}
 
-  if (sectionCache[index] !== undefined) {
-    msgEl.innerHTML = marked.parse(sectionCache[index]);
+function loadExplanation(msgEl, groupKey, code) {
+  if (sectionCache[groupKey] !== undefined) {
+    msgEl.innerHTML = marked.parse(sectionCache[groupKey]);
     return;
   }
-
+  msgEl.innerHTML = '<div class="chat-loading"><span></span><span></span><span></span></div>';
   sectionAbortController = new AbortController();
   streamText(
     "/explain-section",
-    { code_section: sections[index] },
+    { code_section: code },
     msgEl,
     sectionAbortController.signal
   ).then((text) => {
     if (text) {
-      sectionCache[index] = text;
+      sectionCache[groupKey] = text;
       if (currentSessionId) {
-        authFetch(`/api/sessions/${currentSessionId}/sections/${index}`, {
+        authFetch(`/api/sessions/${currentSessionId}/sections/${groupKey}`, {
           method: "POST",
           body: JSON.stringify({ explanation: text }),
         });
       }
     }
+  });
+}
+
+function triggerExplain() {
+  if (!pendingExplain) return;
+  const { groupKey, code } = pendingExplain;
+  pendingExplain = null;
+
+  document.getElementById("explain-now-btn").hidden = true;
+
+  const chatEl = document.getElementById("chat-messages");
+  const hasQA = !!chatEl.querySelector(".qa-message-user");
+
+  chatEl.querySelector(".inline-explain-btn")?.remove();
+  chatEl.querySelector(".hint")?.remove();
+
+  const msgEl = document.createElement("div");
+  msgEl.className = "explanation-message";
+
+  if (hasQA) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "prepended-explanation";
+    wrapper.appendChild(msgEl);
+    chatEl.insertBefore(wrapper, chatEl.firstChild);
+  } else {
+    chatEl.appendChild(msgEl);
+  }
+
+  loadExplanation(msgEl, groupKey, code);
+}
+
+function collapseExplainButton() {
+  const chatEl = document.getElementById("chat-messages");
+  if (!chatEl.querySelector(".inline-explain-btn")) return;
+
+  chatEl.querySelector(".hint")?.remove();
+  chatEl.querySelector(".inline-explain-btn")?.remove();
+
+  const btn = document.getElementById("explain-now-btn");
+  btn.hidden = false;
+  btn.onclick = triggerExplain;
+}
+
+async function saveMergeGroups() {
+  if (!currentSessionId || !authToken) return;
+  authFetch(`/api/sessions/${currentSessionId}/merge-groups`, {
+    method: "POST",
+    body: JSON.stringify({ merge_groups: mergeGroups }),
   });
 }
 
@@ -472,6 +713,7 @@ async function sendQuestion() {
   qaBtn.disabled = true;
   qaInput.disabled = true;
 
+  if (explainMode === "manual") collapseExplainButton();
   appendQAMessage("user", question);
   const assistantEl = appendQAMessage("assistant", "");
 
@@ -542,6 +784,17 @@ function escapeHtml(text) {
 }
 
 // ── Init ──────────────────────────────────────────────────────
+
+document.querySelectorAll(".explain-mode-btn").forEach(btn => {
+  btn.classList.toggle("active", btn.dataset.mode === explainMode);
+  btn.addEventListener("click", () => {
+    explainMode = btn.dataset.mode;
+    localStorage.setItem("explain-mode", explainMode);
+    document.querySelectorAll(".explain-mode-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.mode === explainMode);
+    });
+  });
+});
 
 updateAuthButton();
 if (authToken) {
