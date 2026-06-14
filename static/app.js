@@ -173,7 +173,8 @@ function renderAdminPanel(users) {
             ? `<span class="badge badge-approved">승인됨</span>
                <button class="admin-action-btn revoke-btn" onclick="toggleApproval(${u.id}, true)">취소</button>`
             : `<span class="badge badge-pending">대기중</span>
-               <button class="admin-action-btn approve-btn" onclick="toggleApproval(${u.id}, false)">승인</button>`
+               <button class="admin-action-btn approve-btn" onclick="toggleApproval(${u.id}, false)">승인</button>
+               <button class="admin-action-btn delete-user-btn" onclick="deleteUser(${u.id})">삭제</button>`
         }
       </div>
     </div>
@@ -184,6 +185,14 @@ async function toggleApproval(userId, currentlyApproved) {
   const action = currentlyApproved ? "revoke" : "approve";
   try {
     await apiFetch(`/admin/users/${userId}/${action}`, { method: "POST" });
+    loadAdminPanel();
+  } catch {}
+}
+
+async function deleteUser(userId) {
+  if (!confirm("이 계정을 삭제할까요?")) return;
+  try {
+    await apiFetch(`/admin/users/${userId}`, { method: "DELETE" });
     loadAdminPanel();
   } catch {}
 }
@@ -280,7 +289,23 @@ function renderSidebarFromData(sessions) {
     .join("");
 }
 
-document.getElementById("select-mode-btn").addEventListener("click", toggleSelectionMode);
+let selectionIntent = null; // 'merge' | 'delete'
+
+document.getElementById("select-mode-btn").addEventListener("click", () => {
+  if (!selectionMode) enterSelectionMode("merge");
+  else if (selectionIntent === "merge") {
+    if (canMerge()) mergeSelected();
+    else exitSelectionMode();
+  }
+});
+
+document.getElementById("delete-mode-btn").addEventListener("click", () => {
+  if (!selectionMode) enterSelectionMode("delete");
+  else if (selectionIntent === "delete") {
+    if (selectedGroups.size > 0) deleteSelected();
+    else exitSelectionMode();
+  }
+});
 
 document.getElementById("new-btn").addEventListener("click", () => {
   currentSessionId = null;
@@ -364,9 +389,9 @@ function renderSections(secs, savedMergeGroups = null) {
   mergeGroups = savedMergeGroups || secs.map((_, i) => [i]);
   selectedGroups = new Set();
   selectionMode = false;
+  selectionIntent = null;
   document.querySelector('.code-panel')?.classList.remove('selection-mode');
-  updateSelectModeBtn();
-  updateSelectAllButton();
+  updateToolbar();
 
   const container = document.getElementById("code-sections");
   container.innerHTML = "";
@@ -388,8 +413,7 @@ function renderSections(secs, savedMergeGroups = null) {
       if (checkbox.checked) selectedGroups.add(gIdx);
       else selectedGroups.delete(gIdx);
       row.classList.toggle("selected-for-merge", checkbox.checked);
-      updateSelectModeBtn();
-      updateSelectAllButton();
+      updateToolbar();
     });
     checkboxWrap.appendChild(checkbox);
     row.appendChild(checkboxWrap);
@@ -418,56 +442,77 @@ function renderSections(secs, savedMergeGroups = null) {
       div.textContent = code;
     }
 
-    div.addEventListener("click", () => { if (!selectionMode) selectGroup(gIdx, groupKey, code); });
+    div.addEventListener("click", () => {
+      if (selectionMode) {
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event("change"));
+      } else {
+        selectGroup(gIdx, groupKey, code);
+      }
+    });
     row.appendChild(div);
     container.appendChild(row);
   });
 }
 
-function updateSelectModeBtn() {
-  const btn = document.getElementById("select-mode-btn");
+function updateToolbar() {
+  const mergeBtn = document.getElementById("select-mode-btn");
+  const deleteBtn = document.getElementById("delete-mode-btn");
+  const selectAllBtn = document.getElementById("select-all-btn");
+
   if (!selectionMode) {
-    btn.textContent = "선택하기";
-    btn.className = "";
-  } else if (canMerge()) {
-    btn.textContent = "합치기";
-    btn.className = "merge-ready";
-  } else {
-    btn.textContent = "취소";
-    btn.className = "cancel-mode";
+    mergeBtn.textContent = "합치기"; mergeBtn.className = ""; mergeBtn.hidden = false;
+    deleteBtn.textContent = "삭제하기"; deleteBtn.className = ""; deleteBtn.hidden = false;
+    selectAllBtn.hidden = true;
+  } else if (selectionIntent === "merge") {
+    deleteBtn.hidden = true;
+    selectAllBtn.hidden = false;
+    if (canMerge()) { mergeBtn.textContent = "합치기"; mergeBtn.className = "merge-ready"; }
+    else { mergeBtn.textContent = "취소"; mergeBtn.className = "cancel-mode"; }
+    const all = mergeGroups.length > 0 && selectedGroups.size === mergeGroups.length;
+    selectAllBtn.textContent = all ? "전체 해제" : "전체 선택";
+    selectAllBtn.classList.toggle("deselect-mode", all);
+  } else if (selectionIntent === "delete") {
+    mergeBtn.hidden = true;
+    selectAllBtn.hidden = false;
+    if (selectedGroups.size > 0) { deleteBtn.textContent = "삭제"; deleteBtn.className = "delete-ready"; }
+    else { deleteBtn.textContent = "취소"; deleteBtn.className = "cancel-mode"; }
+    const all = mergeGroups.length > 0 && selectedGroups.size === mergeGroups.length;
+    selectAllBtn.textContent = all ? "전체 해제" : "전체 선택";
+    selectAllBtn.classList.toggle("deselect-mode", all);
   }
 }
 
-function updateSelectAllButton() {
-  const btn = document.getElementById("select-all-btn");
-  btn.hidden = !selectionMode;
-  if (!selectionMode) return;
-  const allSelected = mergeGroups.length > 0 && selectedGroups.size === mergeGroups.length;
-  btn.textContent = allSelected ? "전체 해제" : "전체 선택";
-  btn.classList.toggle("deselect-mode", allSelected);
-}
-
-function toggleSelectionMode() {
-  if (!selectionMode) {
-    selectionMode = true;
-    document.querySelector(".code-panel").classList.add("selection-mode");
-    updateSelectModeBtn();
-    updateSelectAllButton();
-  } else if (canMerge()) {
-    mergeSelected();
-  } else {
-    exitSelectionMode();
-  }
+function enterSelectionMode(intent) {
+  selectionMode = true;
+  selectionIntent = intent;
+  document.querySelector(".code-panel").classList.add("selection-mode");
+  updateToolbar();
 }
 
 function exitSelectionMode() {
   selectionMode = false;
+  selectionIntent = null;
   selectedGroups = new Set();
   document.querySelector(".code-panel").classList.remove("selection-mode");
   document.querySelectorAll(".merge-checkbox").forEach(cb => { cb.checked = false; });
   document.querySelectorAll(".section-row").forEach(row => row.classList.remove("selected-for-merge"));
-  updateSelectModeBtn();
-  updateSelectAllButton();
+  updateToolbar();
+}
+
+function deleteSelected() {
+  const newGroups = mergeGroups.filter((_, i) => !selectedGroups.has(i));
+  selectedGroups.forEach(i => {
+    const key = mergeGroups[i].join("-");
+    delete sectionCache[key];
+    if (currentSessionId) {
+      authFetch(`/api/sessions/${currentSessionId}/sections/${key}`, { method: "DELETE" });
+    }
+  });
+  renderSections(sections, newGroups);
+  if (currentSessionId) saveMergeGroups();
+  document.getElementById("chat-messages").innerHTML = '<p class="hint">👈 코드에서 원하는 부분을 클릭하세요.</p>';
+  document.getElementById("qa-input-area").hidden = true;
 }
 
 document.getElementById("select-all-btn").addEventListener("click", () => {
@@ -484,8 +529,7 @@ document.getElementById("select-all-btn").addEventListener("click", () => {
       row.classList.remove("selected-for-merge");
     }
   });
-  updateSelectModeBtn();
-  updateSelectAllButton();
+  updateToolbar();
 });
 
 function canMerge() {
@@ -513,11 +557,6 @@ function mergeSelected() {
   }
 
   renderSections(sections, newGroups);
-
-  const newGroupIdx = newGroups.findIndex(g => g === newGroup);
-  const code = newGroup.map(i => sections[i]).join("\n\n");
-  const groupKey = newGroup.join("-");
-  selectGroup(newGroupIdx, groupKey, code);
 
   if (currentSessionId) saveMergeGroups();
 }
@@ -562,7 +601,7 @@ function selectGroup(gIdx, groupKey, code) {
     chatEl.appendChild(hintEl);
     const explainBtn = document.createElement("button");
     explainBtn.className = "inline-explain-btn";
-    explainBtn.textContent = "설명 보기 ✨";
+    explainBtn.textContent = "설명 보기";
     explainBtn.addEventListener("click", triggerExplain);
     chatEl.appendChild(explainBtn);
     return;
@@ -752,7 +791,7 @@ function appendQAMessage(role, text) {
     div.innerHTML = text ? marked.parse(text) : "";
   }
   container.appendChild(div);
-  div.scrollIntoView({ behavior: "smooth", block: "end" });
+  container.scrollTop = container.scrollHeight;
   return div;
 }
 

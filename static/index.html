@@ -81,8 +81,8 @@
 
         <section class="input-section">
           <textarea id="code-input" placeholder="설명받고 싶은 코드를 여기에 붙여넣으세요..."></textarea>
-          <button id="submit-btn">설명해줘 ✨</button>
         </section>
+        <button id="submit-btn">설명해줘 →</button>
 
         <div id="output" hidden>
           <div class="overall-card">
@@ -93,7 +93,8 @@
             <div class="split-view">
               <div class="code-panel">
                 <div class="code-panel-toolbar">
-                  <button id="select-mode-btn">선택하기</button>
+                  <button id="select-mode-btn">합치기</button>
+                  <button id="delete-mode-btn">삭제하기</button>
                   <button id="select-all-btn" hidden>전체 선택</button>
                 </div>
                 <div id="code-sections"></div>
@@ -109,7 +110,7 @@
                 </div>
                 <div class="qa-input-row" id="qa-input-area" hidden>
                   <input type="text" id="qa-input" placeholder="궁금한 점을 물어보세요..." />
-                  <button id="qa-btn">전송</button>
+                  <button id="qa-btn">↑</button>
                 </div>
               </div>
             </div>

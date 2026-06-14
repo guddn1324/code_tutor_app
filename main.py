@@ -254,6 +254,19 @@ def revoke_user(target_id: int, admin_id: int = Depends(admin_user)):
     return {"ok": True}
 
 
+@app.delete("/admin/users/{target_id}")
+def delete_user(target_id: int, admin_id: int = Depends(admin_user)):
+    conn = get_db()
+    row = conn.execute("SELECT is_admin FROM users WHERE id=?", (target_id,)).fetchone()
+    if not row or row["is_admin"]:
+        conn.close()
+        raise HTTPException(status_code=403, detail="관리자 계정은 삭제할 수 없습니다")
+    conn.execute("DELETE FROM users WHERE id=?", (target_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
 # ── Session endpoints ─────────────────────────────────────────
 
 @app.get("/api/sessions")
@@ -419,6 +432,24 @@ def stream_response(system, content, max_tokens=1024):
 
 @app.post("/sections")
 def sections(req: CodeRequest, user_id: int = Depends(approved_user)):
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=8192,
+            system="코드를 논리적 단위(함수, 클래스, import 블록, 설정 등)로 나눠 JSON 배열로만 반환하세요. 다른 텍스트 없이 JSON만 반환하세요. 원본 코드를 정확히 포함하고 수정하거나 생략하지 마세요.",
+            messages=[{"role": "user", "content": f"다음 코드를 논리적 단위로 나눠 JSON 배열로 반환하세요:\n\n```\n{req.code}\n```"}],
+        )
+        text = response.content[0].text.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```[a-z]*\n?", "", text)
+            text = re.sub(r"\n?```$", "", text.strip())
+        result = json.loads(text)
+        if isinstance(result, list) and all(isinstance(s, str) for s in result) and result:
+            return {"sections": result}
+    except Exception:
+        pass
+
+    # fallback: blank-line splitting
     lines = req.code.splitlines()
     result, current = [], []
     for line in lines:
@@ -438,7 +469,7 @@ def explain(req: CodeRequest, user_id: int = Depends(approved_user)):
     return stream_response(
         OVERALL_SYSTEM,
         f"다음 코드를 설명해주세요:\n\n```\n{req.code}\n```",
-        max_tokens=1024,
+        max_tokens=2048,
     )
 
 
@@ -447,7 +478,7 @@ def explain_section(req: SectionRequest, user_id: int = Depends(approved_user)):
     return stream_response(
         SECTION_SYSTEM,
         f"다음 코드 섹션을 설명해주세요:\n\n```\n{req.code_section}\n```",
-        max_tokens=768,
+        max_tokens=2048,
     )
 
 
